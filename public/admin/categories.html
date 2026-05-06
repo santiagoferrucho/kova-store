@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Categorías · Admin kova.</title>
+  <link rel="stylesheet" href="/css/kova.css">
+</head>
+<body>
+<div id="admin-nav"></div>
+<main class="container" style="padding-top:28px;padding-bottom:48px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+    <h2>Categorías</h2>
+    <button class="btn btn--primary" id="new-btn">+ Nueva categoría</button>
+  </div>
+  <div class="card card--flush">
+    <div class="table-wrap" id="cat-table"><div class="spinner"></div></div>
+  </div>
+</main>
+
+<div class="modal-bg" id="cat-modal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3 id="modal-title">Nueva categoría</h3>
+      <button class="modal__close" id="modal-close">✕</button>
+    </div>
+    <div class="modal__body">
+      <input type="hidden" id="c-id">
+      <div class="field"><label class="field__label">Nombre *</label><input id="c-name" class="field__input"></div>
+      <div class="field"><label class="field__label">Slug *</label><input id="c-slug" class="field__input" placeholder="yogurt-griego"></div>
+      <div class="field"><label class="field__label">Descripción</label><textarea id="c-desc" class="field__textarea" rows="2"></textarea></div>
+      <div id="cat-err" class="alert alert--err" style="display:none"></div>
+    </div>
+    <div class="modal__foot">
+      <button class="btn btn--secondary" id="cancel-btn">Cancelar</button>
+      <button class="btn btn--primary" id="save-btn">Guardar</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api } from '/js/modules/api.js';
+import { renderAdminNav } from '/js/modules/admin-nav.js';
+import { toast, openModal, closeModal } from '/js/modules/ui.js';
+
+async function boot() {
+  if (!renderAdminNav('categories')) return;
+  await loadCats();
+  document.getElementById('new-btn').addEventListener('click', () => openCatModal(null));
+  document.getElementById('modal-close').addEventListener('click', () => closeModal('cat-modal'));
+  document.getElementById('cancel-btn').addEventListener('click', () => closeModal('cat-modal'));
+  document.getElementById('save-btn').addEventListener('click', saveCat);
+  document.getElementById('c-name').addEventListener('input', e => {
+    if (!document.getElementById('c-id').value)
+      document.getElementById('c-slug').value = e.target.value.toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9-]/g,'');
+  });
+}
+
+async function loadCats() {
+  try {
+    const cats = await api.categories();
+    document.getElementById('cat-table').innerHTML = `<table>
+      <thead><tr><th>Nombre</th><th>Slug</th><th>Descripción</th><th></th></tr></thead>
+      <tbody>${cats.map(c=>`<tr>
+        <td style="font-weight:600">${c.name}</td>
+        <td><code style="font-size:.8rem;background:var(--paper);padding:2px 6px;border-radius:3px">${c.slug}</code></td>
+        <td style="font-size:.82rem;color:var(--muted)">${c.description||'—'}</td>
+        <td style="white-space:nowrap">
+          <button class="btn btn--secondary btn--sm" style="margin-right:4px" onclick=\'editCat(${JSON.stringify(c).replace(/\'/g,"\\'")})\'> Editar</button>
+          <button class="btn btn--danger btn--sm" onclick="delCat(${c.id},\'${c.name.replace(/\'/g,"\\'")}\')">Eliminar</button>
+        </td>
+      </tr>`).join('')}</tbody></table>`;
+  } catch(e) { document.getElementById('cat-table').innerHTML = `<div class="alert alert--err" style="margin:16px">${e.message}</div>`; }
+}
+
+window.editCat = (c) => openCatModal(c);
+window.delCat  = async (id, name) => {
+  if (!confirm("Eliminar \""+name+"\"?")) return;
+  try { await api.deleteCategory(id); toast('Categoría eliminada', 'ok'); loadCats(); }
+  catch(e) { toast(e.message, 'err'); }
+};
+
+function openCatModal(c) {
+  document.getElementById('modal-title').textContent = c ? 'Editar categoría' : 'Nueva categoría';
+  document.getElementById('c-id').value   = c?.id || '';
+  document.getElementById('c-name').value = c?.name || '';
+  document.getElementById('c-slug').value = c?.slug || '';
+  document.getElementById('c-desc').value = c?.description || '';
+  document.getElementById('cat-err').style.display = 'none';
+  openModal('cat-modal');
+}
+
+async function saveCat() {
+  const id = document.getElementById('c-id').value;
+  const body = { name: document.getElementById('c-name').value, slug: document.getElementById('c-slug').value, description: document.getElementById('c-desc').value };
+  const err = document.getElementById('cat-err');
+  try {
+    if (id) await api.updateCategory(id, body); else await api.createCategory(body);
+    toast('Categoría guardada', 'ok'); closeModal('cat-modal'); loadCats();
+  } catch(e) { err.textContent = e.message; err.style.display = 'block'; }
+}
+
+boot();
+</script>
+</body>
+</html>

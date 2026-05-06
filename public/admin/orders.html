@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pedidos · Admin kova.</title>
+  <link rel="stylesheet" href="/css/kova.css">
+</head>
+<body>
+<div id="admin-nav"></div>
+<main class="container" style="padding-top:28px;padding-bottom:48px">
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:24px;flex-wrap:wrap">
+    <h2>Pedidos</h2>
+    <select id="status-filter" style="height:34px;border:1px solid var(--line);border-radius:4px;font-size:.875rem;padding:0 10px;background:var(--white);color:var(--text)">
+      <option value="">Todos los estados</option>
+      <option value="pending">Pendiente</option>
+      <option value="processing">En proceso</option>
+      <option value="shipped">Enviado</option>
+      <option value="delivered">Entregado</option>
+      <option value="cancelled">Cancelado</option>
+    </select>
+  </div>
+  <div class="card card--flush">
+    <div class="table-wrap" id="orders-table"><div class="spinner"></div></div>
+  </div>
+</main>
+
+<div class="modal-bg" id="order-modal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3>Pedido <span id="m-id"></span></h3>
+      <button class="modal__close" onclick="closeOrderModal()">✕</button>
+    </div>
+    <div class="modal__body" id="m-body"></div>
+    <div class="modal__foot">
+      <select id="new-status" style="height:36px;border:1px solid var(--line);border-radius:4px;padding:0 10px;font-size:.875rem">
+        <option value="pending">Pendiente</option>
+        <option value="processing">En proceso</option>
+        <option value="shipped">Enviado</option>
+        <option value="delivered">Entregado</option>
+        <option value="cancelled">Cancelado</option>
+      </select>
+      <button class="btn btn--primary" id="update-status-btn">Actualizar estado</button>
+    </div>
+  </div>
+</div>
+
+<script type="module">
+import { api } from '/js/modules/api.js';
+import { renderAdminNav } from '/js/modules/admin-nav.js';
+import { fmtPrice, fmtDate, statusBadge, toast, openModal, closeModal } from '/js/modules/ui.js';
+
+let currentOrderId = null;
+
+async function boot() {
+  if (!renderAdminNav('orders')) return;
+  await loadOrders();
+  document.getElementById('status-filter').addEventListener('change', loadOrders);
+  document.getElementById('update-status-btn').addEventListener('click', updateStatus);
+
+  const params = new URLSearchParams(location.search);
+  if (params.get('id')) viewOrder(+params.get('id'));
+}
+
+window.closeOrderModal = () => closeModal('order-modal');
+
+async function loadOrders() {
+  const status = document.getElementById('status-filter').value;
+  try {
+    const d = await api.adminOrders({ status, limit: 50 });
+    document.getElementById('orders-table').innerHTML = `<table>
+      <thead><tr><th>#</th><th>Cliente</th><th>Email</th><th>Total</th><th>Estado</th><th>Fecha</th><th></th></tr></thead>
+      <tbody>${d.data.map(o=>`<tr>
+        <td style="font-family:var(--f-display);font-weight:600">${o.id}</td>
+        <td>${o.user_name}</td>
+        <td style="font-size:.82rem;color:var(--muted)">${o.user_email}</td>
+        <td style="font-weight:600">${fmtPrice(o.total)}</td>
+        <td>${statusBadge(o.status)}</td>
+        <td style="font-size:.82rem;color:var(--muted)">${fmtDate(o.created_at)}</td>
+        <td><button class="btn btn--secondary btn--sm" onclick="viewOrder(${o.id})">Ver</button></td>
+      </tr>`).join('')}</tbody></table>`;
+  } catch(e) { document.getElementById('orders-table').innerHTML = `<div class="alert alert--err" style="margin:16px">${e.message}</div>`; }
+}
+
+window.viewOrder = async (id) => {
+  currentOrderId = id;
+  try {
+    const o = await api.adminOrder(id);
+    document.getElementById('m-id').textContent = `#${o.id}`;
+    document.getElementById('new-status').value = o.status;
+    document.getElementById('m-body').innerHTML = `
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:16px;font-size:.875rem">
+        <div><span style="color:var(--muted)">Cliente</span><br><strong>${o.user_name}</strong></div>
+        <div><span style="color:var(--muted)">Email</span><br>${o.user_email}</div>
+        <div><span style="color:var(--muted)">Dirección</span><br>${o.shipping_address}</div>
+        <div><span style="color:var(--muted)">Pago</span><br>${o.payment_method}</div>
+      </div>
+      <table style="margin-bottom:8px">
+        <thead><tr><th>Producto</th><th>Cant.</th><th>Precio</th><th>Subtotal</th></tr></thead>
+        <tbody>${o.items.map(i=>`<tr>
+          <td>${i.name}</td>
+          <td>${i.quantity}</td>
+          <td>${fmtPrice(i.price)}</td>
+          <td style="font-weight:600">${fmtPrice(i.price*i.quantity)}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+      ${o.discount_amount>0?`<div style="font-size:.82rem;color:var(--ok);margin-bottom:4px">Descuento: −${fmtPrice(o.discount_amount)} (${o.notes})</div>`:''}
+      <div style="font-family:var(--f-display);font-weight:700;font-size:1rem;border-top:1px solid var(--line);padding-top:8px;margin-top:8px;display:flex;justify-content:space-between">
+        <span>Total</span><span>${fmtPrice(o.total)}</span>
+      </div>`;
+    openModal('order-modal');
+  } catch(e) { toast(e.message, 'err'); }
+};
+
+async function updateStatus() {
+  const status = document.getElementById('new-status').value;
+  try {
+    await api.updateOrderStatus(currentOrderId, status);
+    toast('Estado actualizado', 'ok');
+    closeModal('order-modal');
+    loadOrders();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+boot();
+</script>
+</body>
+</html>

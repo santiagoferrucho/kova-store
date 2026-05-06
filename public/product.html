@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Producto · kova.</title>
+  <link rel="stylesheet" href="/css/kova.css">
+</head>
+<body>
+<div id="nav-slot"></div>
+<main class="container" style="padding-top:24px;padding-bottom:48px">
+  <a href="/" id="back-link" style="font-size:.82rem;color:var(--muted);display:inline-flex;align-items:center;gap:4px;margin-bottom:24px;text-decoration:none">
+    ← Catálogo
+  </a>
+  <div id="detail" style="display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:start">
+    <div class="spinner"></div>
+  </div>
+  <div style="margin-top:48px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+      <h3 id="reviews-title">Valoraciones</h3>
+    </div>
+    <div id="reviews-list"></div>
+    <div id="review-form" style="display:none;margin-top:24px;padding-top:24px;border-top:1px solid var(--line)">
+      <h4 style="margin-bottom:16px">Escribe una valoración</h4>
+      <div class="star-pick" id="star-pick">
+        <span data-v="1">☆</span><span data-v="2">☆</span><span data-v="3">☆</span>
+        <span data-v="4">☆</span><span data-v="5">☆</span>
+      </div>
+      <div class="field" style="margin-top:12px">
+        <textarea id="rv-text" class="field__textarea" rows="3" placeholder="Describe tu experiencia con este producto..."></textarea>
+      </div>
+      <button class="btn btn--primary" onclick="submitReview()">Publicar valoración</button>
+    </div>
+  </div>
+</main>
+<script type="module">
+import { api, auth } from '/js/modules/api.js';
+import { cart } from '/js/modules/cart.js';
+import { renderNav, fmtPrice, stars, toast, statusBadge } from '/js/modules/ui.js';
+import { t } from '/js/modules/i18n.js';
+
+const pid = new URLSearchParams(location.search).get('id');
+let product = null, selRating = 0;
+
+async function boot() {
+  renderNav(cart);
+  await cart.init();
+  if (!pid) { location.href = '/'; return; }
+  await loadProduct();
+  await loadReviews();
+}
+
+async function loadProduct() {
+  try {
+    product = await api.product(pid);
+    document.title = `${product.name} · kova.`;
+    const inStock = product.stock > 0;
+    document.getElementById('detail').innerHTML = `
+      <div>
+        <img class="product-img-full" src="${product.image_url || 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=700&q=80'}"
+          alt="${product.name}"
+          onerror="this.src='https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=700&q=80'">
+      </div>
+      <div>
+        <div style="margin-bottom:10px">
+          ${(product.categories||[]).map(c=>`<span class="tag" style="margin-right:4px">${c.name}</span>`).join('')}
+        </div>
+        <h1 style="margin-bottom:4px">${product.name}</h1>
+        <p style="font-size:.8rem;color:var(--muted);margin-bottom:12px">${t('product.sku')}: ${product.sku}</p>
+        ${product.avg_rating ? stars(product.avg_rating, product.review_count) : ''}
+        <div class="price" style="font-size:1.6rem;margin:16px 0 8px">${fmtPrice(product.price)}</div>
+        <p style="font-size:.875rem;color:var(--text);line-height:1.7;margin-bottom:20px">${product.description || ''}</p>
+        <p style="font-size:.82rem;margin-bottom:16px;font-weight:600;color:${product.stock===0?'var(--danger)':product.stock<=5?'var(--warn)':'var(--ok)'}">
+          ${product.stock===0 ? t('out') : product.stock<=5 ? `⚠ ${t('low',product.stock)}` : `✓ ${t('stock',product.stock)}`}
+        </p>
+        ${inStock ? `
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:20px">
+            <button class="qty__btn" id="qty-minus">−</button>
+            <span class="qty__val" id="qty-val">1</span>
+            <button class="qty__btn" id="qty-plus">+</button>
+            <span style="font-size:.82rem;color:var(--muted)">unidades</span>
+          </div>
+          <button class="btn btn--primary btn--lg btn--full" id="add-btn">${t('add.cart')}</button>
+        ` : `<button class="btn btn--primary btn--lg btn--full" disabled>${t('out')}</button>`}
+      </div>`;
+
+    let qty = 1;
+    document.getElementById('qty-minus')?.addEventListener('click', () => {
+      qty = Math.max(1, qty - 1);
+      document.getElementById('qty-val').textContent = qty;
+    });
+    document.getElementById('qty-plus')?.addEventListener('click', () => {
+      qty = Math.min(product.stock, qty + 1);
+      document.getElementById('qty-val').textContent = qty;
+    });
+    document.getElementById('add-btn')?.addEventListener('click', () => cart.add(product, qty));
+
+  } catch { location.href = '/'; }
+}
+
+async function loadReviews() {
+  const reviews = await api.reviews(pid).catch(() => []);
+  const list = document.getElementById('reviews-list');
+  if (!reviews.length) {
+    list.innerHTML = `<p style="color:var(--muted);font-size:.875rem">${t('product.no.reviews')}</p>`;
+  } else {
+    list.innerHTML = reviews.map(r => `
+      <div class="review-item">
+        <div class="stars">${'★'.repeat(r.rating)}${'☆'.repeat(5-r.rating)}</div>
+        <p style="margin:6px 0 4px;font-size:.875rem">${r.comment || ''}</p>
+        <div class="review-author">— ${r.user_name} · ${new Date(r.created_at).toLocaleDateString('es-CO')}</div>
+      </div>`).join('');
+  }
+  const user = auth.getUser();
+  if (user?.role === 'client') {
+    document.getElementById('review-form').style.display = 'block';
+    initStarPick();
+  }
+}
+
+function initStarPick() {
+  const pick = document.getElementById('star-pick');
+  pick.addEventListener('mouseover', e => { const s = e.target.closest('[data-v]'); if (s) highlight(+s.dataset.v); });
+  pick.addEventListener('mouseout', () => highlight(selRating));
+  pick.addEventListener('click', e => { const s = e.target.closest('[data-v]'); if (s) { selRating = +s.dataset.v; highlight(selRating); } });
+}
+
+function highlight(v) {
+  document.querySelectorAll('.star-pick span').forEach(s => {
+    const n = +s.dataset.v;
+    s.textContent = n <= v ? '★' : '☆';
+    s.classList.toggle('lit', n <= v);
+  });
+}
+
+window.submitReview = async () => {
+  if (!selRating) { toast('Selecciona una valoración', 'err'); return; }
+  try {
+    await api.createReview(pid, { rating: selRating, comment: document.getElementById('rv-text').value });
+    toast('Valoración publicada', 'ok');
+    document.getElementById('review-form').style.display = 'none';
+    loadReviews();
+  } catch(e) { toast(e.message, 'err'); }
+};
+
+boot();
+</script>
+</body>
+</html>

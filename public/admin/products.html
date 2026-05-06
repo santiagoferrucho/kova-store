@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Productos · Admin kova.</title>
+  <link rel="stylesheet" href="/css/kova.css">
+</head>
+<body>
+<div id="admin-nav"></div>
+<main class="container" style="padding-top:28px;padding-bottom:48px">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:24px">
+    <h2>Productos</h2>
+    <button class="btn btn--primary" id="new-btn">+ Nuevo producto</button>
+  </div>
+  <div class="card card--flush">
+    <div class="table-wrap" id="prod-table"><div class="spinner"></div></div>
+  </div>
+</main>
+<div class="modal-bg" id="prod-modal">
+  <div class="modal">
+    <div class="modal__head">
+      <h3 id="modal-title">Nuevo producto</h3>
+      <button class="modal__close" id="modal-close">&#x2715;</button>
+    </div>
+    <div class="modal__body">
+      <input type="hidden" id="p-id">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+        <div class="field" style="grid-column:1/-1"><label class="field__label">Nombre *</label><input id="p-name" class="field__input"></div>
+        <div class="field"><label class="field__label">SKU *</label><input id="p-sku" class="field__input"></div>
+        <div class="field"><label class="field__label">Precio (COP) *</label><input id="p-price" class="field__input" type="number" min="0"></div>
+        <div class="field"><label class="field__label">Stock</label><input id="p-stock" class="field__input" type="number" min="0" value="0"></div>
+        <div class="field" id="active-field" style="display:none"><label class="field__label">Estado</label>
+          <select id="p-active" class="field__select"><option value="1">Activo</option><option value="0">Inactivo</option></select>
+        </div>
+      </div>
+      <div class="field"><label class="field__label">Descripcion</label><textarea id="p-desc" class="field__textarea" rows="2"></textarea></div>
+      <div class="field"><label class="field__label">URL imagen</label><input id="p-img" class="field__input" placeholder="https://..."></div>
+      <div class="field"><label class="field__label">Categorias</label><div id="p-cats" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:6px"></div></div>
+      <div id="modal-err" class="alert alert--err" style="display:none;margin-top:8px"></div>
+    </div>
+    <div class="modal__foot">
+      <button class="btn btn--secondary" id="cancel-btn">Cancelar</button>
+      <button class="btn btn--primary" id="save-btn">Guardar</button>
+    </div>
+  </div>
+</div>
+<script type="module">
+import { api } from '/js/modules/api.js';
+import { renderAdminNav } from '/js/modules/admin-nav.js';
+import { fmtPrice, toast, openModal, closeModal } from '/js/modules/ui.js';
+
+let allCats = [];
+
+async function boot() {
+  if (!renderAdminNav('products')) return;
+  allCats = await api.categories().catch(() => []);
+  await loadProducts();
+  document.getElementById('new-btn').addEventListener('click', () => openProdModal(null));
+  document.getElementById('modal-close').addEventListener('click', () => closeModal('prod-modal'));
+  document.getElementById('cancel-btn').addEventListener('click', () => closeModal('prod-modal'));
+  document.getElementById('save-btn').addEventListener('click', saveProduct);
+}
+
+async function loadProducts() {
+  try {
+    const d = await api.products({ limit: 50, page: 1 });
+    document.getElementById('prod-table').innerHTML = `<table>
+      <thead><tr><th></th><th>Nombre</th><th>SKU</th><th>Precio</th><th>Stock</th><th>Categorias</th><th>Estado</th><th></th></tr></thead>
+      <tbody>${d.data.map(p => {
+        const pj = JSON.stringify(p).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+        const nm = p.name.replace(/'/g,"\\'");
+        return `<tr>
+          <td><img class="img-thumb" src="${p.image_url||'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=80&q=60'}" alt="${p.name}" onerror="this.src='https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=80&q=60'"></td>
+          <td style="font-weight:600">${p.name}</td>
+          <td style="font-size:.82rem;color:var(--muted)">${p.sku}</td>
+          <td>${fmtPrice(p.price)}</td>
+          <td><span style="${p.stock<=5?'color:var(--warn);font-weight:600':''}">${p.stock}</span></td>
+          <td>${(p.categories||[]).map(c=>'<span class="tag" style="margin-right:3px">'+c.name+'</span>').join('')}</td>
+          <td><span class="badge badge--${p.is_active?'active':'inactive'}">${p.is_active?'Activo':'Inactivo'}</span></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn--secondary btn--sm" style="margin-right:4px" data-edit='${pj}'>Editar</button>
+            <button class="btn btn--danger btn--sm" data-del="${p.id}" data-name="${nm}">Eliminar</button>
+          </td>
+        </tr>`;
+      }).join('')}</tbody></table>`;
+    document.getElementById('prod-table').addEventListener('click', async e => {
+      const eb = e.target.closest('[data-edit]');
+      const db = e.target.closest('[data-del]');
+      if (eb) openProdModal(JSON.parse(eb.dataset.edit));
+      if (db) {
+        if (!confirm('Eliminar "' + db.dataset.name + '"?')) return;
+        try { await api.deleteProduct(db.dataset.del); toast('Eliminado','ok'); loadProducts(); }
+        catch(ex) { toast(ex.message,'err'); }
+      }
+    });
+  } catch(e) { document.getElementById('prod-table').innerHTML = '<div class="alert alert--err" style="margin:16px">'+e.message+'</div>'; }
+}
+
+function openProdModal(p) {
+  document.getElementById('modal-title').textContent = p ? 'Editar producto' : 'Nuevo producto';
+  document.getElementById('p-id').value    = p ? p.id : '';
+  document.getElementById('p-name').value  = p ? p.name : '';
+  document.getElementById('p-sku').value   = p ? p.sku : '';
+  document.getElementById('p-price').value = p ? p.price : '';
+  document.getElementById('p-stock').value = p ? p.stock : 0;
+  document.getElementById('p-desc').value  = p ? (p.description||'') : '';
+  document.getElementById('p-img').value   = p ? (p.image_url||'') : '';
+  document.getElementById('active-field').style.display = p ? 'block' : 'none';
+  document.getElementById('p-active').value = p ? String(p.is_active) : '1';
+  document.getElementById('modal-err').style.display = 'none';
+  document.getElementById('p-cats').innerHTML = allCats.map(c =>
+    '<label style="display:flex;align-items:center;gap:5px;font-size:.82rem;cursor:pointer;border:1px solid var(--line);border-radius:4px;padding:3px 9px">' +
+    '<input type="checkbox" value="' + c.id + '"' + (p && p.categories && p.categories.some(x=>x.id===c.id) ? ' checked' : '') + '> ' + c.name + '</label>'
+  ).join('');
+  openModal('prod-modal');
+}
+
+async function saveProduct() {
+  const id = document.getElementById('p-id').value;
+  const cats = Array.from(document.querySelectorAll('#p-cats input:checked')).map(c => +c.value);
+  const body = {
+    name: document.getElementById('p-name').value,
+    sku:  document.getElementById('p-sku').value,
+    price: document.getElementById('p-price').value,
+    stock: document.getElementById('p-stock').value,
+    description: document.getElementById('p-desc').value,
+    image_url:   document.getElementById('p-img').value,
+    categories: cats
+  };
+  if (id) body.is_active = +document.getElementById('p-active').value;
+  const err = document.getElementById('modal-err');
+  try {
+    if (id) await api.updateProduct(id, body); else await api.createProduct(body);
+    toast('Producto guardado','ok'); closeModal('prod-modal'); loadProducts();
+  } catch(e) { err.textContent = e.message; err.style.display = 'block'; }
+}
+
+boot();
+</script>
+</body>
+</html>

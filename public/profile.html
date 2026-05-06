@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mi perfil · kova.</title>
+  <link rel="stylesheet" href="/css/kova.css">
+</head>
+<body>
+<div id="nav-slot"></div>
+<main class="container" style="padding-top:32px;padding-bottom:48px">
+  <div style="display:grid;grid-template-columns:240px 1fr;gap:32px;align-items:start">
+
+    <!-- Profile panel -->
+    <div>
+      <div class="card" style="margin-bottom:16px">
+        <div id="user-info" style="margin-bottom:20px"></div>
+        <h4 style="margin-bottom:14px">Editar perfil</h4>
+        <div class="field">
+          <label class="field__label">Nombre</label>
+          <input id="f-name" class="field__input">
+        </div>
+        <div class="field">
+          <label class="field__label">Nueva contraseña</label>
+          <input id="f-pwd" class="field__input" type="password" placeholder="Dejar en blanco para no cambiar">
+        </div>
+        <div id="profile-msg" class="alert" style="display:none"></div>
+        <button class="btn btn--primary btn--sm btn--full" id="save-btn">Guardar cambios</button>
+      </div>
+    </div>
+
+    <!-- Orders panel -->
+    <div>
+      <h2 style="margin-bottom:20px">Historial de pedidos</h2>
+      <div id="orders-list"><div class="spinner"></div></div>
+    </div>
+  </div>
+</main>
+<script type="module">
+import { api, auth } from '/js/modules/api.js';
+import { cart } from '/js/modules/cart.js';
+import { renderNav, fmtPrice, fmtDate, statusBadge, toast } from '/js/modules/ui.js';
+import { t } from '/js/modules/i18n.js';
+
+async function boot() {
+  const user = auth.getUser();
+  if (!user) { location.href = '/login.html'; return; }
+  renderNav(cart);
+  await cart.init();
+
+  document.getElementById('user-info').innerHTML = `
+    <div style="font-family:var(--f-display);font-weight:700;font-size:1rem;margin-bottom:2px">${user.name}</div>
+    <div style="font-size:.82rem;color:var(--muted)">${user.email}</div>
+    <div style="margin-top:6px"><span class="badge badge--${user.role==='admin'?'processing':'shipped'}">${user.role}</span></div>`;
+  document.getElementById('f-name').value = user.name;
+
+  document.getElementById('save-btn').addEventListener('click', saveProfile);
+  await loadOrders();
+
+  const p = new URLSearchParams(location.search);
+  if (p.get('success')) toast(`Pedido #${p.get('order')} confirmado. ¡Gracias!`, 'ok', 5000);
+}
+
+async function saveProfile() {
+  const name = document.getElementById('f-name').value.trim();
+  const pwd  = document.getElementById('f-pwd').value;
+  const body = {};
+  if (name) body.name = name;
+  if (pwd)  body.password = pwd;
+  const msg = document.getElementById('profile-msg');
+  try {
+    const u = await api.updateMe(body);
+    auth.set(auth.getToken(), u);
+    document.getElementById('f-pwd').value = '';
+    msg.className = 'alert alert--ok'; msg.textContent = 'Cambios guardados'; msg.style.display = 'block';
+    setTimeout(() => msg.style.display = 'none', 3000);
+  } catch(e) {
+    msg.className = 'alert alert--err'; msg.textContent = e.message; msg.style.display = 'block';
+  }
+}
+
+async function loadOrders() {
+  try {
+    const orders = await api.myOrders();
+    const el = document.getElementById('orders-list');
+    if (!orders.length) {
+      el.innerHTML = `<div class="empty"><div class="empty__icon">○</div><div class="empty__title">Sin pedidos aún</div><p class="empty__text">Explora nuestros productos artesanales</p><a href="/" class="btn btn--secondary" style="margin-top:16px">Ir al catálogo</a></div>`;
+      return;
+    }
+    el.innerHTML = orders.map(o => `
+      <div class="card card--flush" style="margin-bottom:12px">
+        <div class="card__header" style="background:var(--paper)">
+          <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+            <span style="font-family:var(--f-display);font-weight:700;font-size:.9rem">#${o.id}</span>
+            <span style="font-size:.8rem;color:var(--muted)">${fmtDate(o.created_at)}</span>
+            ${statusBadge(o.status)}
+          </div>
+          <span style="font-family:var(--f-display);font-weight:700;color:var(--ink)">${fmtPrice(o.total)}</span>
+        </div>
+        <div class="card__body" style="padding:var(--space-4) var(--space-5)">
+          ${o.items.map(i => `
+            <div style="display:flex;justify-content:space-between;font-size:.875rem;padding:3px 0;border-bottom:1px solid var(--line)">
+              <span>${i.name} <span style="color:var(--muted)">×${i.quantity}</span></span>
+              <span style="font-weight:600">${fmtPrice(i.price*i.quantity)}</span>
+            </div>`).join('')}
+          ${o.discount_amount > 0 ? `<div style="font-size:.82rem;color:var(--ok);padding:4px 0">Descuento: −${fmtPrice(o.discount_amount)}</div>` : ''}
+          <div style="font-size:.8rem;color:var(--muted);margin-top:8px">📍 ${o.shipping_address}</div>
+        </div>
+      </div>`).join('');
+  } catch(e) {
+    document.getElementById('orders-list').innerHTML = `<div class="alert alert--err">${e.message}</div>`;
+  }
+}
+
+boot();
+</script>
+</body>
+</html>

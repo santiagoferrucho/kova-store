@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>kova. — Productos artesanales</title>
+  <link rel="stylesheet" href="/css/kova.css">
+</head>
+<body>
+<div id="nav-slot"></div>
+
+<main>
+  <!-- Hero strip -->
+  <div style="background:var(--ink);color:#fff;padding:28px 0;border-bottom:1px solid rgba(255,255,255,.06)">
+    <div class="container" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px">
+      <div>
+        <h1 style="color:#fff;font-size:clamp(1.1rem,2.5vw,1.5rem);font-weight:700;margin-bottom:4px">Cuidamos lo que comemos como si fuera cosa nuestra.</h1>
+        <p style="color:var(--soft);font-size:.875rem;margin:0">Yogurt griego · Galletas artesanales · Café de especialidad</p>
+      </div>
+      <span style="font-size:.75rem;color:rgba(255,255,255,.35);letter-spacing:.1em;text-transform:uppercase">cosecha buena · 2026</span>
+    </div>
+  </div>
+
+  <div class="container" style="padding-top:32px;padding-bottom:48px">
+    <div style="display:grid;grid-template-columns:200px 1fr;gap:32px;align-items:start">
+
+      <!-- Sidebar -->
+      <aside class="sidebar">
+        <div class="sidebar__section">
+          <div class="sidebar__title">Categorías</div>
+          <div id="cat-list">
+            <button class="filter-btn active" data-slug="">Todos los productos</button>
+          </div>
+        </div>
+        <div class="sidebar__section">
+          <div class="sidebar__title">Precio</div>
+          <div style="margin-bottom:8px">
+            <span class="label">Máximo: </span>
+            <span id="price-label" style="font-family:var(--f-display);font-size:.85rem;color:var(--ink);font-weight:600">$100.000</span>
+          </div>
+          <input type="range" id="price-range" min="0" max="100000" value="100000" step="2000"
+            style="width:100%;accent-color:var(--mid)">
+          <div style="display:flex;justify-content:space-between;font-size:.72rem;color:var(--muted);margin-top:4px">
+            <span>$0</span><span>$100k+</span>
+          </div>
+          <button class="btn btn--ghost btn--sm btn--full" style="margin-top:12px" id="apply-btn">Aplicar</button>
+        </div>
+      </aside>
+
+      <!-- Catálogo -->
+      <section>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap">
+          <span id="count-label" class="label" style="color:var(--muted)">Cargando...</span>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span class="label">Mostrar</span>
+            <select id="limit-sel" style="height:30px;border:1px solid var(--line);border-radius:4px;font-size:.82rem;padding:0 8px;background:var(--white);color:var(--text)">
+              <option value="12">12</option>
+              <option value="24">24</option>
+              <option value="48">48</option>
+            </select>
+          </div>
+        </div>
+
+        <div id="grid" class="product-grid"></div>
+        <div id="pag" class="pagination"></div>
+      </section>
+    </div>
+  </div>
+</main>
+
+<footer style="border-top:1px solid var(--line);padding:20px 0;margin-top:auto">
+  <div class="container" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px">
+    <span style="font-family:var(--f-display);font-size:.82rem;color:var(--muted)">kova. — «Lo bueno se siembra, se cuida y se comparte.»</span>
+    <span style="font-size:.75rem;color:var(--muted)">DAWeb 2026-10 · UPB Bucaramanga</span>
+  </div>
+</footer>
+
+<script type="module">
+import { api, auth } from '/js/modules/api.js';
+import { cart } from '/js/modules/cart.js';
+import { renderNav, fmtPrice, stars, toast } from '/js/modules/ui.js';
+import { t } from '/js/modules/i18n.js';
+
+let page = 1, cat = '', maxPrice = 100000, q = '';
+
+async function boot() {
+  renderNav(cart);
+  await cart.init();
+
+  const params = new URLSearchParams(location.search);
+  q = params.get('q') || '';
+  if (q) document.getElementById('search-input').value = q;
+
+  await loadCats();
+  await loadProducts();
+
+  document.getElementById('price-range').addEventListener('input', e => {
+    maxPrice = +e.target.value;
+    document.getElementById('price-label').textContent = fmtPrice(maxPrice);
+  });
+  document.getElementById('apply-btn').addEventListener('click', () => { page = 1; loadProducts(); });
+  document.getElementById('limit-sel').addEventListener('change', () => { page = 1; loadProducts(); });
+}
+
+async function loadCats() {
+  const cats = await api.categories().catch(() => []);
+  const list = document.getElementById('cat-list');
+  list.innerHTML = `<button class="filter-btn active" data-slug="">${t('cat.all')}</button>`;
+  cats.forEach(c => {
+    const b = document.createElement('button');
+    b.className = 'filter-btn';
+    b.dataset.slug = c.slug;
+    b.textContent = c.name;
+    list.appendChild(b);
+  });
+  list.addEventListener('click', e => {
+    const btn = e.target.closest('.filter-btn');
+    if (!btn) return;
+    list.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    cat = btn.dataset.slug;
+    page = 1;
+    loadProducts();
+  });
+}
+
+async function loadProducts() {
+  document.getElementById('grid').innerHTML = '<div class="spinner"></div>';
+  const limit = +document.getElementById('limit-sel').value;
+  const p = { page, limit };
+  if (q) p.q = q;
+  if (cat) p.category = cat;
+  if (maxPrice < 100000) p.max_price = maxPrice;
+
+  try {
+    const data = await api.products(p);
+    renderGrid(data.data);
+    renderPag(data.pagination);
+    document.getElementById('count-label').textContent = t('catalog.found', data.pagination.total);
+  } catch (e) {
+    document.getElementById('grid').innerHTML = `<p style="color:var(--danger)">${e.message}</p>`;
+  }
+}
+
+function renderGrid(products) {
+  const grid = document.getElementById('grid');
+  if (!products.length) {
+    grid.innerHTML = `<div class="empty" style="grid-column:1/-1"><div class="empty__icon">○</div><p class="empty__title">${t('catalog.empty')}</p></div>`;
+    return;
+  }
+  grid.innerHTML = products.map(p => {
+    const inStock = p.stock > 0;
+    const stockTxt = p.stock === 0 ? t('out') : p.stock <= 5 ? t('low', p.stock) : t('stock', p.stock);
+    const stockCls = p.stock === 0 ? 'stock--out' : p.stock <= 5 ? 'stock--low' : '';
+    return `
+      <div class="product-card">
+        <div class="product-card__img-wrap">
+          <a href="/product.html?id=${p.id}">
+            <img class="product-card__img" src="${p.image_url || 'https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=400&q=70'}"
+              alt="${p.name}" loading="lazy"
+              onerror="this.src='https://images.unsplash.com/photo-1588168333986-5078d3ae3976?w=400&q=70'">
+          </a>
+        </div>
+        <div class="product-card__body">
+          <div class="product-card__cats">
+            ${(p.categories || []).slice(0, 2).map(c => `<span class="tag">${c.name}</span>`).join('')}
+          </div>
+          <a href="/product.html?id=${p.id}" style="text-decoration:none">
+            <div class="product-card__name">${p.name}</div>
+          </a>
+          <div class="product-card__desc">${(p.description || '').slice(0, 75)}${p.description?.length > 75 ? '…' : ''}</div>
+          ${p.avg_rating ? stars(p.avg_rating, p.review_count) : ''}
+          <div class="product-card__footer">
+            <div>
+              <div class="price">${fmtPrice(p.price)}</div>
+              <div class="stock ${stockCls}">${stockTxt}</div>
+            </div>
+            <button class="btn btn--primary btn--sm" ${!inStock ? 'disabled' : ''}
+              data-pid='${JSON.stringify({id:p.id,name:p.name,price:p.price,image_url:p.image_url,stock:p.stock})}'>
+              ${inStock ? t('add') : t('out')}
+            </button>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  grid.addEventListener('click', async e => {
+    const btn = e.target.closest('[data-pid]');
+    if (!btn || btn.disabled) return;
+    await cart.add(JSON.parse(btn.dataset.pid), 1);
+  });
+}
+
+function renderPag({ page: pg, pages }) {
+  const el = document.getElementById('pag');
+  if (pages <= 1) { el.innerHTML = ''; return; }
+  let html = `<button ${pg<=1?'disabled':''} onclick="goPage(${pg-1})">‹</button>`;
+  for (let i = 1; i <= pages; i++) {
+    if (i === 1 || i === pages || Math.abs(i - pg) <= 1)
+      html += `<button class="${i===pg?'active':''}" onclick="goPage(${i})">${i}</button>`;
+    else if (Math.abs(i - pg) === 2) html += `<button disabled>…</button>`;
+  }
+  html += `<button ${pg>=pages?'disabled':''} onclick="goPage(${pg+1})">›</button>`;
+  el.innerHTML = html;
+}
+
+window.goPage = p => { page = p; loadProducts(); scrollTo({ top: 0, behavior: 'smooth' }); };
+
+boot();
+</script>
+</body>
+</html>

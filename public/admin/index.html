@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin · kova.</title>
+  <link rel="stylesheet" href="/css/kova.css">
+</head>
+<body>
+<div id="admin-nav"></div>
+<main class="container" style="padding-top:28px;padding-bottom:48px">
+  <h2 style="margin-bottom:24px">Resumen</h2>
+  <div class="stat-grid" style="margin-bottom:32px">
+    <div class="stat"><div class="stat__value" id="st-products">—</div><div class="stat__label">Productos activos</div></div>
+    <div class="stat"><div class="stat__value" id="st-orders">—</div><div class="stat__label">Pedidos totales</div></div>
+    <div class="stat"><div class="stat__value" id="st-pending">—</div><div class="stat__label">Pendientes</div></div>
+    <div class="stat"><div class="stat__value" id="st-revenue">—</div><div class="stat__label">Ingresos recientes</div></div>
+  </div>
+  <div class="card card--flush">
+    <div class="card__header">
+      <h3>Pedidos recientes</h3>
+      <a href="/admin/orders.html" style="font-size:.82rem;color:var(--mid)">Ver todos →</a>
+    </div>
+    <div class="table-wrap" id="recent-table"><div class="spinner"></div></div>
+  </div>
+</main>
+<script type="module">
+import { api } from '/js/modules/api.js';
+import { renderAdminNav } from '/js/modules/admin-nav.js';
+import { fmtPrice, fmtDate, statusBadge } from '/js/modules/ui.js';
+
+async function boot() {
+  if (!renderAdminNav('dash')) return;
+  const [prods, orders] = await Promise.all([
+    api.products({ limit:1 }).catch(() => ({ pagination:{ total:'?' } })),
+    api.adminOrders({ limit:20 }).catch(() => ({ data:[], pagination:{ total:'?' } }))
+  ]);
+  document.getElementById('st-products').textContent = prods.pagination.total;
+  document.getElementById('st-orders').textContent   = orders.pagination.total;
+  document.getElementById('st-pending').textContent  = orders.data.filter(o=>o.status==='pending').length;
+  document.getElementById('st-revenue').textContent  = fmtPrice(orders.data.reduce((s,o)=>s+o.total,0));
+  document.getElementById('recent-table').innerHTML = `<table>
+    <thead><tr><th>#</th><th>Cliente</th><th>Total</th><th>Estado</th><th>Fecha</th><th></th></tr></thead>
+    <tbody>${orders.data.map(o=>`<tr>
+      <td style="font-family:var(--f-display);font-weight:600">${o.id}</td>
+      <td>${o.user_name}<div style="font-size:.78rem;color:var(--muted)">${o.user_email}</div></td>
+      <td style="font-weight:600">${fmtPrice(o.total)}</td>
+      <td>${statusBadge(o.status)}</td>
+      <td style="font-size:.82rem;color:var(--muted)">${fmtDate(o.created_at)}</td>
+      <td><a href="/admin/orders.html?id=${o.id}" style="font-size:.82rem;color:var(--mid)">Ver →</a></td>
+    </tr>`).join('')}</tbody></table>`;
+}
+boot();
+</script>
+</body>
+</html>

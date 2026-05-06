@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Checkout · kova.</title>
+  <link rel="stylesheet" href="/css/kova.css">
+</head>
+<body>
+<div id="nav-slot"></div>
+<main class="container" style="padding-top:32px;padding-bottom:48px">
+  <h2 style="margin-bottom:28px">Finalizar compra</h2>
+  <div style="display:grid;grid-template-columns:1fr 300px;gap:32px;align-items:start">
+    <div class="card">
+      <!-- Step 1: Address -->
+      <div style="margin-bottom:28px">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <div style="width:24px;height:24px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--f-display);font-size:.78rem;font-weight:700;flex-shrink:0">1</div>
+          <h3>Dirección de envío</h3>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="field" style="grid-column:1/-1">
+            <label class="field__label">Dirección *</label>
+            <input id="f-addr" class="field__input" placeholder="Calle 45 #12-34, Apto 201">
+          </div>
+          <div class="field">
+            <label class="field__label">Ciudad *</label>
+            <input id="f-city" class="field__input" placeholder="Bucaramanga">
+          </div>
+          <div class="field">
+            <label class="field__label">Teléfono</label>
+            <input id="f-phone" class="field__input" placeholder="300 123 4567">
+          </div>
+        </div>
+      </div>
+      <!-- Step 2: Payment -->
+      <div>
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+          <div style="width:24px;height:24px;border-radius:50%;background:var(--ink);color:#fff;display:flex;align-items:center;justify-content:center;font-family:var(--f-display);font-size:.78rem;font-weight:700;flex-shrink:0">2</div>
+          <h3>Método de pago <small style="font-size:.75rem;font-weight:400;color:var(--muted)">(simulado)</small></h3>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px" id="pay-opts">
+          <label style="border:1px solid var(--ink);border-radius:var(--r);padding:14px;text-align:center;cursor:pointer">
+            <input type="radio" name="pay" value="card" checked style="display:none">
+            <div style="font-size:1.4rem;margin-bottom:4px">💳</div>
+            <div style="font-family:var(--f-display);font-size:.8rem;font-weight:600">Tarjeta</div>
+          </label>
+          <label style="border:1px solid var(--line);border-radius:var(--r);padding:14px;text-align:center;cursor:pointer">
+            <input type="radio" name="pay" value="pse" style="display:none">
+            <div style="font-size:1.4rem;margin-bottom:4px">🏦</div>
+            <div style="font-family:var(--f-display);font-size:.8rem;font-weight:600">PSE</div>
+          </label>
+          <label style="border:1px solid var(--line);border-radius:var(--r);padding:14px;text-align:center;cursor:pointer">
+            <input type="radio" name="pay" value="cash" style="display:none">
+            <div style="font-size:1.4rem;margin-bottom:4px">💵</div>
+            <div style="font-family:var(--f-display);font-size:.8rem;font-weight:600">Efectivo</div>
+          </label>
+        </div>
+      </div>
+    </div>
+    <!-- Summary panel -->
+    <div class="card">
+      <h3 style="margin-bottom:16px">Tu pedido</h3>
+      <div id="order-preview"><div class="spinner" style="margin:16px auto"></div></div>
+      <div id="place-err" class="alert alert--err" style="display:none;margin-top:12px"></div>
+      <button class="btn btn--primary btn--full" style="margin-top:16px" id="place-btn">Confirmar pedido</button>
+    </div>
+  </div>
+</main>
+<script type="module">
+import { api, auth } from '/js/modules/api.js';
+import { cart } from '/js/modules/cart.js';
+import { renderNav, fmtPrice, toast } from '/js/modules/ui.js';
+
+async function boot() {
+  if (!auth.getToken()) { location.href = '/login.html'; return; }
+  cart.subscribe(({ items, total }) => {
+    const coupon = sessionStorage.getItem('kova_coupon') || '';
+    document.getElementById('order-preview').innerHTML =
+      items.map(i => `<div style="display:flex;justify-content:space-between;font-size:.875rem;padding:4px 0">
+        <span>${i.name} ×${i.quantity}</span><span style="font-weight:600">${fmtPrice(i.price*i.quantity)}</span>
+      </div>`).join('') +
+      (coupon ? `<div style="font-size:.8rem;color:var(--mid);padding:4px 0">🎟 ${coupon}</div>` : '') +
+      `<div style="border-top:1px solid var(--line);margin-top:8px;padding-top:8px;display:flex;justify-content:space-between;font-family:var(--f-display);font-weight:700">
+        <span>Total</span><span>${fmtPrice(total)}</span>
+      </div>`;
+  });
+
+  renderNav(cart);
+  await cart.init();
+
+  // Payment option style
+  document.querySelectorAll('#pay-opts label').forEach(l => {
+    l.addEventListener('click', () => {
+      document.querySelectorAll('#pay-opts label').forEach(x => x.style.borderColor = 'var(--line)');
+      l.style.borderColor = 'var(--ink)';
+    });
+  });
+
+  document.getElementById('place-btn').addEventListener('click', placeOrder);
+}
+
+async function placeOrder() {
+  const addr = document.getElementById('f-addr').value.trim();
+  const city = document.getElementById('f-city').value.trim();
+  const phone = document.getElementById('f-phone').value.trim();
+  if (!addr || !city) {
+    const el = document.getElementById('place-err');
+    el.textContent = 'Completa la dirección y ciudad.';
+    el.style.display = 'block';
+    return;
+  }
+  const pay = document.querySelector('input[name="pay"]:checked')?.value || 'simulated';
+  const coupon_code = sessionStorage.getItem('kova_coupon') || undefined;
+  const btn = document.getElementById('place-btn');
+  btn.textContent = 'Procesando...'; btn.disabled = true;
+  try {
+    const d = await api.checkout({
+      shipping_address: `${addr}, ${city}${phone ? '. Tel: '+phone : ''}`,
+      payment_method: pay, coupon_code
+    });
+    sessionStorage.removeItem('kova_coupon');
+    await cart.clear();
+    location.href = `/profile.html?order=${d.order.id}&success=1`;
+  } catch(e) {
+    const el = document.getElementById('place-err');
+    el.textContent = e.message; el.style.display = 'block';
+    btn.textContent = 'Confirmar pedido'; btn.disabled = false;
+  }
+}
+
+boot();
+</script>
+</body>
+</html>
